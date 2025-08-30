@@ -86,12 +86,16 @@ async function execute(interaction: ChatInputCommandInteraction): Promise<void> 
     const pingMetrics = await getPingMetrics(client, interaction);
     const versionInfo = getVersionInfo();
     
+    const isUserInstall = !interaction.guild;
+    const context = isUserInstall ? 'User Install' : 'Guild Install';
+    const authOwners = (interaction as any).authorizingIntegrationOwners;
+    
     const wsStatus = getLatencyStatus(pingMetrics.websocketLatency);
     const apiStatus = getLatencyStatus(pingMetrics.apiLatency);
     
     const embed = new EmbedBuilder()
         .setTitle("📋 ClientConcierge • System Status")
-        .setDescription("*Bot metrics and system information*")
+        .setDescription(`*Bot metrics and system information*\n🔧 **Install Context:** ${context}`)
         .setColor(wsStatus.color)
         .setTimestamp()
         .setFooter({ 

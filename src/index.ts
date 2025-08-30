@@ -24,6 +24,7 @@ const client = new Client({
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
+        GatewayIntentBits.DirectMessages,
     ]
 });
 
@@ -44,15 +45,18 @@ async function loadCommands(): Promise<void> {
         for (const folder of commandFolders) {
             const folderPath = join(commandsPath, folder);
             const commandFiles = readdirSync(folderPath)
-                .filter(file => file.endsWith('.ts') || file.endsWith('.js'));
+                .filter(file => file.endsWith('.js') && !file.endsWith('.d.ts'));
 
             for (const file of commandFiles) {
                 const filePath = join(folderPath, file);
                 const command = await import(filePath);
 
-                if ('data' in command.default && 'execute' in command.default) {
-                    client.commands.set(command.default.data.name, command.default);
-                    console.log(`Loaded command: ${command.default.data.name} from ${filePath}`);
+                // Handle both default and named exports
+                const commandModule = command.default || command;
+                
+                if (commandModule && 'data' in commandModule && 'execute' in commandModule) {
+                    client.commands.set(commandModule.data.name, commandModule);
+                    console.log(`Loaded command: ${commandModule.data.name} from ${filePath}`);
                 } else {
                     console.warn(`Command in ${filePath} is missing required properties.`);
                 }
@@ -71,7 +75,7 @@ async function loadEvents(): Promise<void> {
             console.log('Events directory not found. Skipping event loading.');
             return;
         }
-        const eventFiles = readdirSync(eventsPath).filter(file => file.endsWith('.ts') || file.endsWith('.js'));
+        const eventFiles = readdirSync(eventsPath).filter(file => file.endsWith('.js') && !file.endsWith('.d.ts'));
 
         for (const file of eventFiles) {
             const filePath = join(eventsPath, file);
@@ -110,14 +114,14 @@ async function loadInteractions(): Promise<void> {
 async function loadButtons(interactionsPath: string): Promise<void> {
     const buttonsPath = join(interactionsPath, 'buttons');
     if (existsSync(buttonsPath)) {
-        const buttonFiles = readdirSync(buttonsPath).filter(file => file.endsWith('.ts') || file.endsWith('.js'));
+        const buttonFiles = readdirSync(buttonsPath).filter(file => file.endsWith('.js') && !file.endsWith('.d.ts'));
         for (const file of buttonFiles) {
             const filePath = join(buttonsPath, file);
             const button = await import(filePath);
 
-            if ('customId' in button.default && 'execute' in button.default) {
-                client.buttons.set(button.default.customId, button.default);
-                console.log(`Loaded button: ${button.default.customId} from ${filePath}`);
+            if ('customId' in button && 'execute' in button) {
+                client.buttons.set(button.customId, button);
+                console.log(`Loaded button: ${button.customId} from ${filePath}`);
             }
         }
     }
@@ -126,14 +130,14 @@ async function loadButtons(interactionsPath: string): Promise<void> {
 async function loadModals(interactionsPath: string): Promise<void> {
     const modalsPath = join(interactionsPath, 'modals');
     if (existsSync(modalsPath)) {
-        const modalFiles = readdirSync(modalsPath).filter(file => file.endsWith('.ts') || file.endsWith('.js'));
+        const modalFiles = readdirSync(modalsPath).filter(file => file.endsWith('.js') && !file.endsWith('.d.ts'));
         for (const file of modalFiles) {
             const filePath = join(modalsPath, file);
             const modal = await import(filePath);
 
-            if ('customId' in modal.default && 'execute' in modal.default) {
-                client.modals.set(modal.default.customId, modal.default);
-                console.log(`Loaded modal: ${modal.default.customId} from ${filePath}`);
+            if ('customId' in modal && 'execute' in modal) {
+                client.modals.set(modal.customId, modal);
+                console.log(`Loaded modal: ${modal.customId} from ${filePath}`);
             }
         }
     }
@@ -142,14 +146,14 @@ async function loadModals(interactionsPath: string): Promise<void> {
 async function loadSelectMenus(interactionsPath: string): Promise<void> {
     const selectMenusPath = join(interactionsPath, 'selectMenus');
     if (existsSync(selectMenusPath)) {
-        const selectMenuFiles = readdirSync(selectMenusPath).filter(file => file.endsWith('.ts') || file.endsWith('.js'));
+        const selectMenuFiles = readdirSync(selectMenusPath).filter(file => file.endsWith('.js') && !file.endsWith('.d.ts'));
         for (const file of selectMenuFiles) {
             const filePath = join(selectMenusPath, file);
             const selectMenu = await import(filePath);
 
-            if ('customId' in selectMenu.default && 'execute' in selectMenu.default) {
-                client.selectMenus.set(selectMenu.default.customId, selectMenu.default);
-                console.log(`Loaded select menu: ${selectMenu.default.customId} from ${filePath}`);
+            if ('customId' in selectMenu && 'execute' in selectMenu) {
+                client.selectMenus.set(selectMenu.customId, selectMenu);
+                console.log(`Loaded select menu: ${selectMenu.customId} from ${filePath}`);
             }
         }
     }
@@ -159,19 +163,25 @@ async function deployCommands(): Promise<void> {
     const commands = [];
 
     for (const command of client.commands.values()) {
-        commands.push(command.data.toJSON());
+        const commandData = command.data.toJSON();
+        
+        // Add user install support to all commands by default
+        commandData.integration_types = [0, 1]; // Both guild and user install
+        commandData.contexts = [0, 1, 2]; // All contexts: guild channels, bot DM, private channels
+        
+        commands.push(commandData);
     }
 
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN as string);
 
     try {
-        console.log(`Started refreshing application (/) commands.`);
+        console.log(`Started refreshing application (/) commands with user install support.`);
         const data = await rest.put(
-            Routes.applicationGuildCommands(process.env.CLIENT_ID as string, process.env.MAIN_GUILD_ID as string),
+            Routes.applicationCommands(process.env.CLIENT_ID as string),
             { body: commands }
         ) as any[];
 
-        console.log(`Successfully reloaded ${data.length} application (/) commands.`);
+        console.log(`Successfully reloaded ${data.length} application (/) commands with user install support.`);
     } catch (error) {
         console.error('Error deploying commands:', error);
     }
